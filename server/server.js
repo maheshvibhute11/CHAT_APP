@@ -1,87 +1,62 @@
-import express from 'express';
-import 'dotenv/config';
-import cors from 'cors';
-import http from 'http';
-import { connectDB } from './lib/db.js';
-import userRouter from './routes/userRoutes.js';
-import messageRouter from './routes/messageRoutes.js';
-import { Server } from 'socket.io';
+import express from "express";
+import "dotenv/config";
+import { Server } from "socket.io";
+import cors from "cors";
+import http from "http";
+import { connectDB } from "./lib/db.js";
+import userRouter from "./routes/userRoutes.js";
+import messageRouter from "./routes/messageRoutes.js";
 
-// Create Express App
 const app = express();
-
-// Create HTTP Server
 const server = http.createServer(app);
 
-// Socket.IO setup with CORS
 export const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:5173", "http://localhost:3000"], // Add your frontend URLs here
-    methods: ["GET", "POST"],
-    credentials: true
+    origin: "*" // Replace "*" with your frontend URL in production
   }
 });
 
-// Map to track connected users
+// Store online users
 export const userSocketMap = {};
 
-// Socket.IO connection handler
-// Socket.IO connection handler
+// Socket.IO connection
 io.on("connection", (socket) => {
-  // ✅ Read userId from auth instead of query
-  const userId = socket.handshake.auth.userId;
-  console.log("User Connected:", userId);
+  console.log("A user connected:", socket.id);
 
-  if (userId) {
-    userSocketMap[userId] = socket.id;
-  }
-
-  // Emit online users to all clients
-  io.emit("getOnlineUsers", Object.keys(userSocketMap));
+  // You need to get userId from socket handshake or client emit
+  socket.on("user_connected", (userId) => {
+    if (userId) {
+      userSocketMap[userId] = socket.id;
+    }
+    io.emit("getOnlineUsers", Object.keys(userSocketMap));
+  });
 
   socket.on("disconnect", () => {
-    console.log("User Disconnected:", userId);
-    if (userId) {
-      delete userSocketMap[userId];
+    console.log("User disconnected:", socket.id);
+    // Remove user from map
+    for (const [key, value] of Object.entries(userSocketMap)) {
+      if (value === socket.id) {
+        delete userSocketMap[key];
+      }
     }
-
     io.emit("getOnlineUsers", Object.keys(userSocketMap));
   });
 });
 
-
 // Middleware
 app.use(express.json({ limit: "4mb" }));
-
-// Apply CORS for Express routes
-app.use(cors({
-  origin: ["http://localhost:5173", "http://localhost:3000"],
-  credentials: true
-}));
-
-// Test route
-app.use("/api/status", (req, res) => res.send("Server is live"));
+app.use(cors());
 
 // Routes
 app.use("/api/auth", userRouter);
 app.use("/api/messages", messageRouter);
 
-// Connect to MongoDB and start server
-const startServer = async () => {
-  try {
-    await connectDB();
-    if(process.env.NODE_ENV !=="production"){
-       const PORT = process.env.PORT || 5000;
-    
-    server.listen(PORT, () => console.log(`🚀 Server running on PORT: ${PORT}`));
+// Connect to DB and start server
+const PORT = process.env.PORT || 5000;
+connectDB()
+  .then(() => {
+    server.listen(PORT, () => console.log("Server running on port:", PORT));
+  })
+  .catch((err) => console.error("DB connection error:", err));
 
-    } 
-   
-  } catch (error) {
-    console.error("MongoDB connection failed:", error.message);
-    process.exit(1);
-  }
-};
-
-startServer();
 export default server;
